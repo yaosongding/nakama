@@ -15,12 +15,16 @@
 package server
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/dop251/goja"
+	"github.com/heroiclabs/nakama-common/api"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestJsObjectFreeze(t *testing.T) {
@@ -112,3 +116,79 @@ m.get('a');
 		}
 	})
 }
+
+func TestRuntimeJSLeaderboardResetCreateTimeNumber(t *testing.T) {
+	modules := map[string]string{
+		"index.js": `
+function leaderboardReset(ctx, logger, nk, leaderboard, reset) {
+	if (typeof leaderboard.createTime !== "number") {
+		throw new Error("expected leaderboard.createTime to be number, got " + typeof leaderboard.createTime);
+	}
+	if (leaderboard.createTime !== 1700000123) {
+		throw new Error("expected leaderboard.createTime === 1700000123, got " + leaderboard.createTime);
+	}
+	if (leaderboard.prevReset !== 1700000200) {
+		throw new Error("expected leaderboard.prevReset === 1700000200, got " + leaderboard.prevReset);
+	}
+	if (leaderboard.nextReset !== 1700000300) {
+		throw new Error("expected leaderboard.nextReset === 1700000300, got " + leaderboard.nextReset);
+	}
+	if (reset !== 1700000250) {
+		throw new Error("expected reset === 1700000250, got " + reset);
+	}
+}
+
+var InitModule = function(ctx, logger, nk, initializer) {
+	initializer.registerLeaderboardReset(leaderboardReset);
+};
+`,
+	}
+
+	rt, _, err := runtimeWithModules(t, modules)
+	require.NoError(t, err)
+
+	fn := rt.LeaderboardReset()
+	require.NotNil(t, fn)
+
+	err = fn(context.Background(), &api.Leaderboard{
+		Id:            "weekly-lb",
+		Authoritative: true,
+		SortOrder:     LeaderboardSortOrderDescending,
+		Operator:      api.Operator_BEST,
+		PrevReset:     1700000200,
+		NextReset:     1700000300,
+		Metadata:      `{"season":1}`,
+		CreateTime:    &timestamppb.Timestamp{Seconds: 1700000123},
+	}, 1700000250)
+	require.NoError(t, err)
+}
+
+func TestRuntimeJSLeaderboardResetNilCreateTime(t *testing.T) {
+	modules := map[string]string{
+		"index.js": `
+function leaderboardReset(ctx, logger, nk, leaderboard, reset) {
+	if (typeof leaderboard.createTime !== "number" || leaderboard.createTime !== 0) {
+		throw new Error("expected leaderboard.createTime === 0 when CreateTime is nil, got " + leaderboard.createTime);
+	}
+}
+
+var InitModule = function(ctx, logger, nk, initializer) {
+	initializer.registerLeaderboardReset(leaderboardReset);
+};
+`,
+	}
+
+	rt, _, err := runtimeWithModules(t, modules)
+	require.NoError(t, err)
+
+	fn := rt.LeaderboardReset()
+	require.NotNil(t, fn)
+
+	err = fn(context.Background(), &api.Leaderboard{
+		Id:       "nil-createtime-lb",
+		Operator: api.Operator_BEST,
+		Metadata: "{}",
+	}, 1700000250)
+	require.NoError(t, err)
+}
+
