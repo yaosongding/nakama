@@ -2360,7 +2360,7 @@ func (rp *RuntimeProviderJS) LeaderboardReset(ctx context.Context, leaderboard *
 	}
 	pointerizeSlices(metadataMap)
 	_ = leaderboardObj.Set("metadata", metadataMap)
-	_ = leaderboardObj.Set("createTime", leaderboard.CreateTime)
+	_ = leaderboardObj.Set("createTime", leaderboard.CreateTime.GetSeconds())
 
 	fn, ok := goja.AssertFunction(r.vm.Get(jsFn))
 	if !ok {
